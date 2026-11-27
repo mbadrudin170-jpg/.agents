@@ -1,6 +1,6 @@
 ---
 name: setup-android-workflow
-description: Setup GitHub Actions workflow for Expo/React Native Android development APK (arm64 only) without SDK mismatch issues.
+description: Setup GitHub Actions workflow for Expo/React Native Android development APK (arm64 only) without SDK mismatch or artifact path issues.
 ---
 
 # Setup Android Workflow
@@ -19,9 +19,12 @@ description: Setup GitHub Actions workflow for Expo/React Native Android develop
 5. Prebuild Android with `npx expo prebuild --platform android --clean`.
 6. Build arm64 only:
    `./gradlew assembleDebug -PreactNativeArchitectures=arm64-v8a -Pandroid.injected.build.abi=arm64-v8a`
-7. Upload APK artifact.
+7. List APK outputs before upload:
+   `find android/app/build/outputs -name '*.apk' -print`
+8. Upload APK artifact with path `android/app/build/outputs/**/*.apk`.
 
 ## Notes
 
 - GitHub runners expose API 37 as `android-37.0`, causing `android-37` lookup failures.
+- ABI-specific output may be nested, so use a broad artifact path.
 - Keep NDK and build-tools versions compatible with Expo SDK.
