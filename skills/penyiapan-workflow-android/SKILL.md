@@ -129,6 +129,14 @@ Jika proyek memakai flavor, gunakan sintaks flavor yang sesuai konfigurasi proye
 
 Hindari `expo prebuild --clean` jika direktori native memiliki perubahan manual yang harus dipertahankan. Jika proyek mengelola `android/` secara langsung (bare workflow), jangan menjalankan Prebuild tanpa alasan yang terbukti.
 
+Untuk workflow Expo + npm:
+
+- Pastikan `expo-dev-client` dan semua native package yang diperlukan sudah tercantum dalam `package.json` dan `package-lock.json` sebelum CI dijalankan.
+- Jalankan `npm ci` terlebih dahulu agar instalasi deterministik. Jangan memasang, menghapus, atau mengubah versi dependency setelah langkah tersebut.
+- Untuk CNG, jalankan Prebuild dalam mode CI yang sesuai dengan Expo CLI proyek. Gunakan `CI=1` untuk perilaku non-interaktif bila didukung. Jangan menyalin flag seperti `--non-interactive` tanpa memeriksa `npx expo prebuild --help` pada versi CLI proyek.
+- Sebelum Gradle build, jalankan resolusi Expo Autolinking dan pastikan modul native yang dibutuhkan benar-benar muncul pada hasil Android. Jika modul hilang atau kelas native tidak tercantum, hentikan workflow sebelum kompilasi.
+- Setelah Prebuild, pastikan source native yang dihasilkan memuat modul yang benar. Jangan menganggap keberhasilan perintah Prebuild saja membuktikan native module dapat dipanggil saat runtime.
+
 ### EAS Build cloud
 
 Jika pengguna memilih EAS:
@@ -149,6 +157,57 @@ Dokumentasi resmi:
 - https://docs.expo.dev/build-reference/apk/
 - https://docs.expo.dev/eas/json/
 
+### Modul native lokal Expo (Kotlin/Java)
+
+Jika proyek memiliki kode native sendiri, misalnya modul Kotlin di `modules/<nama-modul>/`, jangan memperlakukan modul itu sebagai config plugin Expo. Periksa seluruh kontrak modul:
+
+- Folder modul harus memiliki `package.json` dan `expo-module.config.json` pada root paket yang sama.
+- `expo-module.config.json` harus menggunakan skema Expo Modules API versi proyek. Untuk Android, daftar kelas native diletakkan pada `android.modules`, berupa nama kelas lengkap (package + class). Bentuk minimal:
+
+```json
+{
+  "platforms": ["android"],
+  "android": {
+    "modules": ["com.example.mymodule.MyModule"]
+  }
+}
+```
+
+- Jangan menggunakan `android.packageName` sebagai pengganti `android.modules`. `packageName` bukan properti registrasi kelas modul native pada skema tersebut.
+- `platforms` hanya boleh mencantumkan platform yang benar-benar diimplementasikan modul. Jika modul Android-only, jangan mengklaim modul tersedia di iOS atau Web.
+- Secara default, Expo Autolinking mencari local Expo modules di `./modules/`. Jika folder berbeda, periksa dan atur `expo.autolinking.nativeModulesDir` pada `package.json`; jangan menebak lokasi pencarian.
+- Jika modul juga ditautkan sebagai dependency lokal `file:`, pastikan path, nama package, package manager, dan lockfile konsisten.
+- Jangan menambahkan path direktori modul ke `app.json` pada array `plugins` kecuali paket tersebut memang menyediakan Expo config plugin. Expo Module dan Expo config plugin adalah dua mekanisme berbeda.
+- Setelah dependency terpasang, verifikasi hasil autolinking sebelum Gradle build. Gunakan perintah yang tersedia pada versi proyek:
+
+```bash
+npx expo-modules-autolinking search
+npx expo-modules-autolinking resolve --platform android
+npx expo-modules-autolinking verify
+```
+
+Periksa output `resolve`: path modul dan nama kelas Kotlin harus terdeteksi. Jangan lanjut menyimpulkan modul terdaftar hanya karena Prebuild berhasil.
+
+### API JavaScript dan implementasi native
+
+- Samakan nama pada `Name("...")` di Kotlin dengan nama yang dipakai `requireNativeModule("...")` di JavaScript.
+- Cocokkan signature, tipe argumen, tipe hasil, nilai nullable, dan error handling antara Kotlin/Swift dengan TypeScript.
+- Untuk operasi yang lama, banyak membaca data, I/O, atau berpotensi memblokir UI/JavaScript thread, gunakan `AsyncFunction` sesuai Expo Modules API dan definisikan hasil JavaScript sebagai `Promise<T>`. Jangan mengubah fungsi sinkron menjadi asynchronous hanya dengan mengganti tipe TypeScript.
+- Berikan implementasi platform-specific atau fallback yang eksplisit untuk platform yang tidak didukung. Jangan biarkan pemanggilan modul Android-only berjalan pada Web/iOS tanpa penanganan.
+- Perubahan Kotlin/Java atau konfigurasi native mengharuskan binary native dibangun ulang. Expo Go tidak dapat memuat sembarang native module milik proyek; gunakan Development Build yang memuat modul tersebut.
+- Periksa permission Android, package visibility, manifest merger, target SDK, dan kebijakan distribusi. Jangan menambahkan permission luas seperti `QUERY_ALL_PACKAGES` tanpa membuktikan fitur memang membutuhkannya dan menilai dampaknya.
+
+### Dependency Development Client dan reproducible install
+
+Untuk Expo Development Build:
+
+1. Tambahkan `expo-dev-client` ke dependency proyek menggunakan `npx expo install expo-dev-client` pada lingkungan pengembangan yang mengubah dependency.
+2. Periksa hasil kompatibilitas dengan Expo SDK yang dipakai. Jangan menebak versi paket atau menulis rentang versi secara manual tanpa bukti dari metadata Expo yang sesuai SDK.
+3. Commit perubahan `package.json` **dan lockfile** yang dihasilkan.
+4. Workflow CI hanya memulihkan dependency yang sudah dikunci, misalnya `npm ci`. CI tidak boleh menjalankan `npx expo install expo-dev-client` setelah `npm ci` sebagai cara diam-diam mengubah dependency tree.
+5. Jika `expo-dev-client` belum ada di manifest/lockfile, tandai sebagai prasyarat yang belum terpenuhi; jangan menyiasatinya dengan install sementara pada runner.
+6. Jalankan pemeriksaan kompatibilitas yang didukung Expo CLI versi proyek, seperti `npx expo install --check`, dan/atau `npx expo-doctor` bila tersedia dan sesuai.
+
 ## 5. Konfigurasi GitHub Actions yang berlaku umum
 
 1. Gunakan trigger sesuai permintaan. Untuk build manual gunakan `workflow_dispatch`; jangan menambah trigger otomatis tanpa kebutuhan.
@@ -163,13 +222,16 @@ Dokumentasi resmi:
 10. Temukan APK dengan pemeriksaan yang gagal jika file tidak ditemukan.
 11. Unggah hanya hasil yang valid. Gunakan `if-no-files-found: error`; jangan memakai `if: always()` untuk menyamarkan kegagalan build sebagai keberhasilan upload.
 
-### Versi GitHub Actions dan deprecation
+### Verifikasi versi GitHub Actions dan deprecation
 
-- Action major version tidak sama dengan versi Java yang diinstal. Contohnya, `actions/setup-java@v6` dapat digunakan untuk memasang JDK 17 jika proyek mewajibkannya.
-- **Baseline per 27 November 2026:** dokumentasi resmi `actions/setup-java` menyatakan versi v1 sampai v4 deprecated dan versi stabil terbaru berada pada major v6. Jangan menyarankan migrasi ke v5 tanpa memeriksa rilis terbaru.
-- Setiap kali workflow diedit, cek ulang status action pada dokumentasi/rilis resminya. Baseline versi dapat berubah.
-- Jika memakai self-hosted runner, periksa persyaratan minimum versi runner dari action yang dipakai, termasuk runtime Node.js yang dibutuhkan action.
-- Jangan mengubah versi JDK, Gradle, atau AGP hanya karena versi action berubah. Masing-masing memiliki kompatibilitas terpisah.
+- Saat workflow dibuat atau diubah, periksa **setiap action yang digunakan**, bukan hanya action yang memunculkan warning. Gunakan repository upstream, halaman Releases, dan dokumentasi resmi masing-masing action.
+- Catat major version yang benar-benar tersedia dan masih didukung pada saat perubahan. Jangan menjadikan angka versi di skill ini sebagai patokan permanen dan jangan mengandalkan ingatan model.
+- Periksa pula runtime Node.js yang dibutuhkan action dan versi minimum GitHub runner. Upgrade major action dapat memiliki persyaratan runner/runtime baru.
+- **Contoh baseline yang telah diperiksa pada 28 November 2026** (hanya contoh snapshot, wajib diperiksa ulang saat digunakan): `actions/checkout@v7`, `actions/setup-node@v7`, `actions/cache@v6`, `actions/upload-artifact@v7`, `actions/setup-java@v6`, dan `android-actions/setup-android@v4`.
+- Jika memilih action dengan versi tertentu, pastikan tag itu benar-benar ada pada repository upstream dan periksa release notes untuk breaking changes. Jangan menaikkan versi semua action secara membabi buta.
+- Major version action tidak sama dengan versi tool yang dipasang. Misalnya, `actions/setup-java@v6` tetap dapat memasang JDK 17 apabila Gradle/AGP proyek memerlukannya.
+- Jangan mengubah JDK, Gradle, atau AGP hanya karena major version action berubah. Itu adalah lapisan kompatibilitas yang berbeda dan harus diperiksa berdasarkan konfigurasi proyek.
+- Jika action upstream telah ditandai deprecated atau runtime yang dipakai akan dihentikan, migrasikan ke versi didukung dan validasi ulang seluruh input/output action.
 
 Pilih cache secara spesifik:
 
@@ -228,6 +290,11 @@ Sebelum menyatakan workflow berhasil, periksa:
 - Proses build benar-benar berakhir sukses.
 - APK ditemukan pada lokasi output aktual dan ukurannya lebih dari nol.
 - APK dapat dibaca sebagai arsip ZIP dan memiliki struktur APK yang benar.
+- APK lolos verifikasi signature dengan `apksigner verify` jika Android Build Tools tersedia.
+- Metadata APK diperiksa dengan `apkanalyzer` atau `aapt`, termasuk application ID dan minimum SDK.
+- Untuk aplikasi yang memakai native modules, periksa library native di dalam APK serta ABI yang terkandung; nama workflow dan parameter Gradle bukan bukti ABI.
+- Untuk target arm64-only, pastikan semua native shared libraries menggunakan `lib/arm64-v8a/` dan tidak ada ABI lain yang tidak diminta.
+- File yang di-upload harus berasal dari job dan commit yang sama, bukan APK lama yang sudah ada di repository atau workspace.
 - Application ID/package name sesuai konfigurasi aplikasi.
 - Mode/jenis build sesuai permintaan.
 - ABI di dalam APK sesuai target.
@@ -290,6 +357,11 @@ Gunakan dokumentasi sesuai framework dan versi proyek. Utamakan dokumentasi resm
 - [ ] Prebuild Expo tidak menghapus perubahan native.
 - [ ] Flavor, signing, environment, dan entry point Flutter diperiksa jika relevan.
 - [ ] Expo Development Build memakai `expo-dev-client` dan bukan disamakan dengan Expo Go.
+- [ ] `expo-dev-client` serta native dependencies sudah tercatat dalam manifest dan lockfile; CI hanya menggunakan instalasi terkunci.
+- [ ] Expo local module memakai `expo-module.config.json` sesuai skema; Android memakai array `modules` berisi nama kelas lengkap.
+- [ ] Expo Autolinking berhasil menemukan dan me-resolve modul untuk Android sebelum Gradle build.
+- [ ] Native module menggunakan API async ketika operasi berpotensi memblokir thread dan JS menerima tipe Promise yang sesuai.
+- [ ] Versi setiap GitHub Action diperiksa dari rilis upstream pada tanggal perubahan.
 - [ ] Format APK dipastikan; AAB tidak salah dianggap APK.
 - [ ] APK ditemukan dan divalidasi sebelum upload.
 - [ ] Laporan membedakan hasil teruji dan belum terverifikasi.
