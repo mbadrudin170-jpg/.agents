@@ -5,6 +5,10 @@ description: Setup GitHub Actions workflow for Expo/React Native Android develop
 
 # Setup Android Workflow
 
+## Trigger
+
+- Use `workflow_dispatch` only to avoid unwanted automatic builds.
+
 ## Steps
 
 1. Checkout with submodules recursive if needed.
