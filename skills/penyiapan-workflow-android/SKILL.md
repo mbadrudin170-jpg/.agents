@@ -1,168 +1,223 @@
 ---
 name: penyiapan-workflow-android
-description: Gunakan saat pengguna meminta membuat, memperbaiki, atau memeriksa GitHub Actions maupun EAS Build untuk APK Android Expo/React Native, khususnya Development Build, target ABI arm64-v8a, konfigurasi SDK, cache, dan artefak APK.
+description: Gunakan saat pengguna meminta membuat, memperbaiki, membandingkan, atau menganalisis GitHub Actions dan proses build APK Android untuk proyek Flutter maupun React Native dengan Expo, termasuk Development Build, ABI, SDK, cache, dan artefak.
 ---
 
 # Penyiapan Workflow Android
 
-## Tujuan
+## Tujuan dan cakupan
 
-Membuat pipeline Android yang menghasilkan APK valid dan dapat dipasang pada perangkat, dengan konfigurasi yang sesuai dengan versi Expo, React Native, Android Gradle Plugin (AGP), Gradle, Java, dan Android SDK pada proyek.
+Menyiapkan pipeline Android yang menghasilkan APK valid untuk dua framework:
+- **Flutter:** aplikasi yang dibangun dengan Flutter dan Dart.
+- **React Native dengan Expo:** aplikasi yang dibangun dengan JavaScript/TypeScript, Expo, dan React Native.
 
-Skill ini mencakup dua jalur yang berbeda:
-- **GitHub Actions + Gradle:** runner GitHub membangun APK dari proyek Android hasil Expo Prebuild.
-- **EAS Build:** layanan Expo membangun APK menggunakan profil pada `eas.json`.
+Skill ini mengatur GitHub Actions, konfigurasi build Android, cache, ABI, dan artefak. Prosedur Flutter dan Expo wajib dipisahkan. Jangan menerapkan perintah, konfigurasi, atau asumsi satu framework ke framework lainnya.
 
-Jangan mencampur konfigurasi atau menganggap kedua jalur tersebut menjalankan perintah yang sama.
+Jalur build yang mungkin digunakan:
+- GitHub Actions menjalankan toolchain framework dan Gradle.
+- EAS Build untuk proyek Expo jika memang dipilih.
+- Layanan build lain hanya jika diminta atau sudah ditetapkan proyek.
 
 ## Pemicu penggunaan
 
-Gunakan skill ini ketika pengguna meminta:
-- Membuat atau memperbaiki workflow build Android di GitHub Actions.
-- Menghasilkan APK Expo Development Build, bukan sekadar menjalankan Expo Go.
-- Membatasi APK ke ABI tertentu, terutama `arm64-v8a`.
-- Menyamakan workflow dengan repositori referensi yang terbukti berhasil.
-- Memeriksa kegagalan SDK, Gradle, Java, prebuild, cache, atau unggah artefak APK.
+Gunakan saat pengguna meminta:
+- Membuat, memperbaiki, atau memeriksa workflow APK Android.
+- Menyiapkan APK development, debug, preview/internal, atau production.
+- Membatasi arsitektur APK, terutama `arm64-v8a`.
+- Menyamakan workflow dengan repositori referensi.
+- Memperbaiki kegagalan SDK, Java, Gradle, Flutter, Expo Prebuild, cache, atau upload artefak.
 
-## Prinsip wajib
+## Aturan wajib
 
-1. Baca aturan repo, memori proyek, dan instruksi skill terkait sebelum mengubah file.
-2. Periksa struktur repo dan branch aktif. Jika repo tidak memiliki branch `master`, gunakan `main`; jangan mengasumsikan nama branch.
-3. Periksa workflow referensi yang diminta pengguna secara langsung. Jangan menganggap konfigurasi repositori referensi sama dengan konfigurasi proyek target.
-4. Jangan mengubah file atau membuat commit jika pengguna hanya meminta analisis. Jika pengguna meminta perbaikan, batasi perubahan pada file yang diperlukan.
-5. Jangan mengarang versi Java, Node.js, Bun, Android SDK, NDK, Build Tools, Gradle, atau AGP. Ambil dari konfigurasi proyek, dokumentasi resmi yang sesuai versinya, atau kebutuhan build yang terdeteksi.
-6. Jangan menetapkan API Android terbaru secara paksa. Versi `compileSdk` harus mengikuti Expo SDK dan konfigurasi native proyek.
-7. Jangan membuat symlink SDK seperti `android-37` ke `android-37.0` sebagai solusi umum. Gunakan nama paket SDK yang benar-benar tersedia. Jika paket tidak tersedia, tentukan versi yang didukung proyek dan runner sebelum mengubah konfigurasi.
-8. Jangan menganggap `eas.json` mengendalikan perintah Gradle di GitHub Actions. Konfigurasi EAS hanya berlaku ketika jalur build memang menggunakan EAS.
-9. Jangan menyatakan APK berhasil hanya karena langkah Gradle selesai. Pastikan berkas APK benar-benar ada, tidak kosong, dan sesuai ABI serta jenis build yang diminta.
-10. Jangan menjalankan build lokal jika aturan proyek melarangnya. Gunakan GitHub Actions atau layanan build yang memang ditetapkan proyek.
+1. Baca aturan repo, memori proyek, dan skill terkait sebelum bekerja.
+2. Identifikasi framework berdasarkan file proyek, bukan dugaan. Flutter umumnya memiliki `pubspec.yaml`; Expo memiliki `package.json` dan konfigurasi Expo.
+3. Periksa branch yang tersedia. Jika repo tidak memiliki `master`, gunakan `main`. Jangan mengasumsikan nama branch.
+4. Jika pengguna menyebut repo referensi, baca workflow dan konfigurasi relevan dari repo referensi serta repo target. Jangan menyalin mentah konfigurasi yang khusus untuk framework atau versi tertentu.
+5. Jangan mengarang versi Flutter, Dart, Node.js, Bun, Expo SDK, Java, Android SDK, NDK, Build Tools, Gradle, atau Android Gradle Plugin (AGP). Ambil dari konfigurasi proyek dan dokumentasi resmi yang sesuai.
+6. Jangan memaksakan Android API terbaru atau membuat symlink SDK sebagai solusi umum. Gunakan paket SDK yang benar-benar tersedia dan kompatibel dengan toolchain proyek.
+7. Jangan menganggap konfigurasi EAS mengendalikan build GitHub Actions yang menjalankan Gradle secara langsung.
+8. Jangan mengklaim APK berhasil hanya karena task build sukses. Periksa berkas APK, metadata, ABI, dan hasil upload.
+9. Patuhi larangan build lokal yang ditetapkan aturan proyek. Jika build hanya boleh melalui GitHub Actions, jangan menjalankan build pada mesin lokal.
+10. Jangan mengubah file atau membuat commit saat pengguna hanya meminta analisis. Lakukan perubahan hanya sesuai permintaan pengguna.
 
-## Alur pemeriksaan
+## 1. Identifikasi framework dan konfigurasi
 
-### 1. Identifikasi proyek dan jalur build
+### Flutter
 
-Periksa setidaknya:
-- `package.json` dan lockfile (`bun.lock`, `bun.lockb`, `package-lock.json`, atau `yarn.lock`).
+Periksa:
+- `pubspec.yaml` dan `pubspec.lock`.
+- `.metadata`, `analysis_options.yaml`, dan konfigurasi Flutter lain yang relevan.
+- `android/settings.gradle(.kts)`, `android/build.gradle(.kts)`, `android/app/build.gradle(.kts)`.
+- `android/gradle/wrapper/gradle-wrapper.properties`.
+- `gradle.properties`, manifest, signing config, flavor, dan file konfigurasi Android lain yang dipakai.
+- Workflow pada `.github/workflows/`.
+
+Tentukan versi Flutter/Dart dari konfigurasi proyek, FVM jika digunakan, atau kebijakan repo. Jangan mengasumsikan versi stable terbaru otomatis cocok.
+
+### React Native dengan Expo
+
+Periksa:
+- `package.json` dan lockfile package manager.
 - `app.json` atau `app.config.js/ts`.
 - `eas.json`, jika tersedia.
-- `.github/workflows/*.yml`.
-- Direktori `android/`, termasuk `build.gradle`, `settings.gradle`, `gradle.properties`, dan Gradle Wrapper, jika sudah ada.
+- `android/` beserta konfigurasi Gradle, jika tersedia.
+- `expo-dev-client` jika pengguna meminta Development Build.
+- Workflow pada `.github/workflows/`.
 
-Tentukan apakah proyek memakai Continuous Native Generation (CNG) atau menyimpan proyek native Android secara langsung. Jangan menjalankan Prebuild dengan `--clean` sebelum memastikan direktori native boleh dibuat ulang dan tidak menyimpan perubahan manual.
+Tentukan apakah proyek memakai Continuous Native Generation (CNG) atau mengelola direktori native secara langsung. Jangan menjalankan Prebuild dengan `--clean` sebelum memastikan perubahan native khusus tidak akan hilang.
 
-### 2. Tentukan jenis APK
+## 2. Tentukan jenis build
 
-Bedakan dengan tegas:
-- **Expo Go:** aplikasi Expo Go yang menjalankan JavaScript proyek; bukan APK aplikasi mandiri milik proyek.
-- **Development Build:** APK aplikasi proyek yang menyertakan `expo-dev-client`, sehingga dapat terhubung ke Metro dan mendukung native module proyek.
-- **Preview/internal APK:** APK mandiri untuk pengujian atau distribusi internal; tidak otomatis merupakan Development Build.
-- **Production:** build untuk distribusi produksi. Jangan menyamakannya dengan debug APK.
+Jangan menyamakan jenis build berikut:
+- **Debug/development:** build untuk pengembangan dan debugging sesuai kemampuan framework.
+- **Expo Development Build:** aplikasi Expo mandiri yang menyertakan `expo-dev-client`; bukan Expo Go.
+- **Preview/internal:** APK untuk pengujian atau distribusi internal; belum tentu Development Build.
+- **Release/production:** build untuk distribusi pengguna.
 
-Untuk Development Build:
-- Pastikan `expo-dev-client` menjadi dependency proyek dan kompatibel dengan Expo SDK yang digunakan.
-- Untuk EAS, periksa profil yang memiliki `developmentClient: true` dan distribusi internal.
-- Untuk GitHub Actions + Gradle, pastikan dependency tersebut terpasang sebelum Prebuild dan build.
-- Jangan menganggap nama profil `development` saja cukup untuk menjadikan APK sebagai Development Build.
+Untuk Flutter, tentukan mode `debug`, `profile`, atau `release` berdasarkan tujuan. Jangan menyebut APK release sebagai development build.
 
-### 3. Tentukan ABI
+Untuk Expo Development Build:
+- Pastikan `expo-dev-client` menjadi dependency dan kompatibel dengan Expo SDK.
+- Untuk EAS, periksa profil yang menggunakan `developmentClient: true` dan distribusi internal.
+- Untuk GitHub Actions + Gradle, pastikan dependency terpasang sebelum Prebuild dan build.
+- Nama profil `development` saja tidak membuktikan bahwa hasilnya Development Build.
+
+## 3. Prosedur build Flutter
+
+1. Siapkan Flutter SDK pada versi yang ditentukan proyek.
+2. Siapkan Java dan Android SDK yang kompatibel dengan AGP/Gradle proyek.
+3. Pulihkan dependency menggunakan lockfile. Gunakan `flutter pub get --enforce-lockfile` jika didukung versi Flutter proyek; jika tidak, gunakan perintah yang kompatibel dan jelaskan alasannya.
+4. Periksa flavor, entry point, dart-define, signing, dan konfigurasi environment yang diperlukan.
+5. Bangun APK sesuai mode dan target ABI yang diminta.
+6. Temukan dan validasi hasil APK sebelum upload.
+
+Contoh perintah arm64-only untuk Flutter, sesuaikan dengan flavor dan entry point proyek:
+
+```bash
+flutter build apk --release --target-platform android-arm64
+```
+
+Untuk APK terpisah per ABI, Flutter menyediakan opsi `--split-per-abi`. Jangan gunakan opsi tersebut jika pengguna meminta satu APK universal atau jika alur distribusi proyek mengharuskan satu berkas tertentu. Periksa nama dan lokasi output aktual, jangan menebaknya.
+
+Jika proyek memakai flavor, gunakan sintaks flavor yang sesuai konfigurasi proyek, misalnya `--flavor` dan `-t` bila diperlukan. Jangan menambahkan flavor atau dart-define yang tidak ditemukan di repo atau tidak diberikan pengguna.
+
+## 4. Prosedur build React Native dengan Expo
+
+### GitHub Actions + Gradle
+
+1. Checkout branch/commit yang benar. Checkout submodule secara rekursif hanya jika proyek memang menggunakannya.
+2. Siapkan Node.js atau Bun sesuai lockfile dan konfigurasi proyek.
+3. Pulihkan dependency secara reproducible, misalnya `npm ci` atau perintah package manager yang sesuai.
+4. Siapkan Java dan Android SDK sesuai kompatibilitas Expo SDK, AGP, dan Gradle.
+5. Jalankan Expo Prebuild hanya jika proyek menggunakan CNG dan direktori native perlu dihasilkan.
+6. Jalankan Gradle Wrapper dengan task build yang sesuai jenis APK.
+7. Validasi APK dan upload artefak.
+
+Hindari `expo prebuild --clean` jika direktori native memiliki perubahan manual yang harus dipertahankan.
+
+### EAS Build
+
+Jika pengguna memilih EAS:
+- Pastikan profil yang dipanggil tersedia dan konfigurasi `eas.json` valid.
+- Untuk Development Build, periksa `developmentClient: true` dan `distribution: internal`.
+- Pastikan output Android berupa APK jika harus dipasang langsung. Periksa `android.buildType` dan konfigurasi profil.
+- Jika membatasi ABI, pastikan konfigurasi Gradle atau opsi build yang digunakan EAS benar-benar menerapkannya.
+- Gunakan secret `EXPO_TOKEN` untuk autentikasi CI bila diperlukan. Jangan mengekspos token pada log atau file.
+- Jika APK harus menjadi artefak GitHub Actions, unduh hasil EAS ke runner lalu unggah file yang benar. Memulai EAS Build tidak otomatis membuat APK di workspace runner.
+
+Dokumentasi resmi: https://docs.expo.dev/build/
+
+## 5. Konfigurasi GitHub Actions yang berlaku umum
+
+1. Gunakan trigger sesuai permintaan. Untuk build manual gunakan `workflow_dispatch`; jangan menambah trigger otomatis tanpa kebutuhan.
+2. Gunakan runner yang sesuai dengan kebutuhan toolchain.
+3. Checkout branch/commit yang benar dan submodule hanya jika diperlukan.
+4. Siapkan toolchain framework yang tepat: Flutter/Dart untuk Flutter; Node/Bun dan Expo untuk Expo.
+5. Siapkan Java dan Android SDK sesuai konfigurasi native proyek.
+6. Aktifkan cache dependency framework dan Gradle. Cache key harus memperhitungkan lockfile serta file konfigurasi build yang relevan.
+7. Gunakan action versi yang masih didukung. Jangan menyalin versi action lama dari workflow referensi tanpa pemeriksaan.
+8. Pulihkan dependency menggunakan lockfile.
+9. Jalankan perintah build yang benar untuk framework dan jenis APK.
+10. Temukan APK dengan pemeriksaan yang gagal jika file tidak ditemukan.
+11. Unggah hanya hasil yang valid. Gunakan `if-no-files-found: error`; jangan memakai `if: always()` untuk menyamarkan kegagalan build sebagai keberhasilan upload.
+
+Pilih cache secara spesifik:
+- Flutter: cache pub dan cache Gradle.
+- Expo: cache package manager dan cache Gradle.
+Jangan mengasumsikan cache Android SDK/NDK diperlukan; tambahkan hanya jika manfaat dan key invalidasinya jelas.
+
+## 6. ABI dan kompatibilitas perangkat
 
 Jika pengguna meminta arm64 saja:
-- Gunakan `arm64-v8a` secara konsisten pada perintah Gradle atau konfigurasi native yang benar-benar mengendalikan ABI.
-- Periksa apakah konfigurasi React Native dan `abiFilters` Gradle saling bertentangan.
-- Jangan menyimpulkan APK arm64-only hanya dari nama artefak atau nama profil.
-- Verifikasi isi APK dengan memeriksa direktori native library, misalnya `lib/arm64-v8a/`, dan pastikan ABI lain tidak ikut terpaket jika permintaannya arm64-only.
-- Jangan menambahkan ABI lain tanpa alasan kompatibilitas yang jelas dan persetujuan pengguna.
+- Target ABI harus `arm64-v8a`.
+- Flutter: gunakan target platform `android-arm64`; verifikasi output APK.
+- React Native/Expo: gunakan konfigurasi arsitektur React Native atau `abiFilters` yang benar-benar berlaku pada versi proyek.
+- Jangan menyimpulkan ABI dari nama file artefak.
+- Periksa isi APK, terutama direktori native library seperti `lib/arm64-v8a/`, dan pastikan ABI lain tidak ikut terpaket bila targetnya arm64-only.
+- Jangan menambah ABI lain tanpa alasan kompatibilitas dan persetujuan pengguna.
 
-Contoh parameter Gradle untuk React Native (sesuaikan dengan versi plugin dan konfigurasi proyek):
+Contoh parameter Gradle React Native (bukan perintah universal; verifikasi dukungan versi proyek):
 
 ```bash
 ./gradlew :app:assembleDebug -PreactNativeArchitectures=arm64-v8a
 ```
 
-Parameter tersebut bukan pengganti pemeriksaan hasil APK. Jangan menambahkan properti Gradle lain yang belum diverifikasi dukungannya.
+Jangan menerapkan parameter React Native tersebut pada proyek Flutter.
 
-### 4. Siapkan GitHub Actions + Gradle
-
-Urutan umum workflow:
-1. Jalankan hanya pada trigger yang diminta pengguna. Untuk workflow build manual, gunakan `workflow_dispatch`; jangan menambah trigger `push` atau `pull_request` tanpa kebutuhan.
-2. Checkout branch atau commit yang benar. Gunakan `submodules: recursive` hanya jika proyek memang memakai submodule.
-3. Siapkan runtime JavaScript sesuai lockfile dan versi proyek.
-4. Aktifkan cache package manager berdasarkan lockfile dan cache Gradle berdasarkan file konfigurasi Gradle. Cache harus memiliki key yang berubah ketika dependency atau konfigurasi build berubah.
-5. Siapkan Java sesuai kompatibilitas AGP/Gradle. Gunakan versi action yang masih didukung; jangan menyalin versi action lama dari workflow referensi tanpa pemeriksaan.
-6. Siapkan Android SDK. Instal hanya platform, Build Tools, atau NDK yang diperlukan proyek dan tersedia pada runner.
-7. Instal dependency secara reproducible menggunakan lockfile, misalnya `bun install --frozen-lockfile` atau `npm ci`. Pilih perintah sesuai package manager proyek.
-8. Jalankan Expo Prebuild hanya jika dibutuhkan oleh CNG. Hindari `--clean` jika ada native customization yang harus dipertahankan.
-9. Jalankan Gradle Wrapper dari direktori Android atau gunakan path task Gradle yang eksplisit.
-10. Temukan APK dan validasi sebelum mengunggahnya.
-11. Unggah artefak hanya jika build berhasil dan APK tersedia. Gunakan `if-no-files-found: error` agar kegagalan path tidak tersembunyi.
-
-Jangan menyalin workflow referensi secara mentah. Pertahankan pola yang terbukti berguna, tetapi sesuaikan package manager, Java, SDK, ABI, task Gradle, dan path artefak dengan proyek target.
-
-### 5. Siapkan EAS Build
-
-Jika pengguna memilih EAS:
-- Pastikan `eas.json` valid dan profil yang dipanggil memang tersedia.
-- Untuk Development Build Android, periksa `developmentClient: true` dan `distribution: internal`.
-- Pastikan hasil Android berupa APK jika harus dipasang langsung pada perangkat. Periksa konfigurasi `android.buildType` atau perilaku profil development yang digunakan.
-- Jika ABI dibatasi, pastikan konfigurasi atau perintah Gradle yang digunakan EAS benar-benar menerapkan pembatasan tersebut.
-- Periksa autentikasi CI melalui secret `EXPO_TOKEN`. Jangan menulis token ke file, log, atau argumen yang dapat terekspos.
-- Jika GitHub Actions perlu menyimpan APK sebagai artefak, pastikan workflow mengunduh hasil build EAS dan mengunggah file APK yang benar. Memulai build EAS saja tidak otomatis menghasilkan artefak lokal di runner.
-
-Rujukan konfigurasi resmi: https://docs.expo.dev/build/
-
-### 6. Android SDK dan kegagalan versi
+## 7. Android SDK dan kegagalan versi
 
 Saat terjadi kegagalan SDK:
-1. Ambil nilai `compileSdk`, `targetSdk`, Build Tools, NDK, AGP, dan Gradle dari konfigurasi proyek yang benar-benar digunakan.
-2. Periksa daftar paket SDK yang tersedia pada runner atau dokumentasi image runner.
-3. Bedakan nama API level dengan nama paket SDK. Jangan menebak suffix versi paket.
-4. Instal paket yang diperlukan dengan nama persis yang tersedia.
-5. Jika versi yang diwajibkan belum tersedia, cari jalur kompatibel yang didukung Expo SDK/AGP. Jangan menurunkan atau menaikkan SDK secara sepihak.
-6. Jelaskan bukti, dampak, dan pilihan perbaikan sebelum mengubah versi utama.
+1. Ambil `compileSdk`, `targetSdk`, Build Tools, NDK, AGP, dan Gradle dari konfigurasi native yang benar-benar digunakan.
+2. Periksa versi Flutter/Expo dan persyaratan Android yang sesuai.
+3. Periksa paket yang tersedia pada runner. Bedakan API level dengan nama paket SDK; jangan menebak suffix versi.
+4. Instal paket dengan nama persis yang tersedia.
+5. Jika versi yang diperlukan tidak tersedia, cari versi kompatibel berdasarkan dokumentasi resmi framework dan toolchain.
+6. Jangan menurunkan atau menaikkan versi utama secara sepihak. Jelaskan bukti, dampak, dan pilihan perbaikannya.
 
-### 7. Validasi hasil APK
+## 8. Perbandingan repositori referensi
 
-Sebelum menyatakan workflow selesai, pastikan:
-- Task Gradle atau proses EAS berakhir sukses.
-- File APK ditemukan pada lokasi hasil build yang benar.
-- Ukuran file masuk akal dan lebih besar dari nol.
-- APK dapat dibaca sebagai ZIP.
-- Application ID sesuai konfigurasi aplikasi.
-- Jenis build sesuai permintaan (Development Build atau APK internal biasa).
+Ketika pengguna menyebut repo referensi:
+1. Baca workflow, konfigurasi framework, konfigurasi Android, lockfile, dan file build yang relevan pada kedua repo.
+2. Pastikan framework kedua repo sama sebelum menyalin langkah khusus framework.
+3. Bandingkan runtime, dependency, versi SDK, Java, Gradle/AGP, ABI, jenis build, signing, cache, dan lokasi artefak.
+4. Pisahkan pola umum yang dapat disamakan dari konfigurasi yang harus berbeda.
+5. Terapkan hanya perubahan yang didukung bukti. Nyatakan dengan jelas jika ada bagian yang belum dapat diverifikasi.
+
+## 9. Validasi APK
+
+Sebelum menyatakan workflow berhasil, periksa:
+- Proses build benar-benar berakhir sukses.
+- APK ditemukan pada lokasi output aktual dan ukurannya lebih dari nol.
+- APK dapat dibaca sebagai arsip ZIP.
+- Application ID/package name sesuai konfigurasi aplikasi.
+- Mode/jenis build sesuai permintaan.
 - ABI di dalam APK sesuai target.
-- Path unggah artefak cocok dengan lokasi file yang benar-benar dihasilkan.
-- Langkah unggah artefak gagal secara jelas jika APK tidak ditemukan.
+- Signing sesuai kebutuhan distribusi.
+- Path upload cocok dengan lokasi output.
+- Upload gagal secara jelas jika APK tidak ditemukan.
 
-Jika tersedia pada runner, gunakan alat Android seperti `apkanalyzer` atau `aapt` untuk memeriksa metadata APK. Jangan menganggap pemeriksaan nama file atau ukuran saja cukup untuk membuktikan APK valid.
+Gunakan `apkanalyzer`, `aapt`, atau alat Android lain jika tersedia untuk memeriksa metadata. Pemeriksaan ukuran dan nama file saja tidak membuktikan APK valid. Instalasi dan pengujian pada perangkat fisik hanya boleh dinyatakan berhasil jika benar-benar dilakukan.
 
-## Perbandingan dengan repositori referensi
+## 10. Format laporan
 
-Ketika pengguna menyebut repositori referensi:
-1. Baca workflow, `package.json`, `app.json`, `eas.json`, serta konfigurasi native yang relevan dari kedua repo.
-2. Catat perbedaan yang memengaruhi hasil build: runtime, dependency, Expo SDK, Java, Gradle/AGP, SDK, ABI, jenis build, signing, dan artefak.
-3. Pisahkan konfigurasi yang memang harus sama dari konfigurasi yang harus mengikuti proyek masing-masing.
-4. Terapkan hanya perubahan yang didukung bukti. Jangan menyebut kedua workflow sudah sama jika masih ada perbedaan yang disengaja atau belum diverifikasi.
+Sampaikan:
+1. **Temuan:** masalah dan lokasi file.
+2. **Perubahan:** file yang diubah dan alasan teknis.
+3. **Validasi:** pemeriksaan yang benar-benar dijalankan beserta hasilnya.
+4. **Belum terverifikasi:** hal yang memerlukan workflow berjalan atau pengujian perangkat.
 
-## Format laporan
-
-Sampaikan secara ringkas:
-1. **Temuan:** penyebab atau ketidaksesuaian beserta file dan bagian terkait.
-2. **Perubahan:** file yang diubah dan alasan teknisnya.
-3. **Validasi:** pemeriksaan yang benar-benar dilakukan dan hasilnya.
-4. **Belum terverifikasi:** hal yang hanya dapat dipastikan setelah workflow dijalankan atau APK diuji pada perangkat.
-
-Jangan mengklaim build, instalasi, atau pengujian perangkat berhasil jika belum benar-benar dilakukan.
+Jangan mengklaim build, instalasi, atau pengujian perangkat berhasil jika belum dilakukan.
 
 ## Checklist
 
-- [ ] Jalur build (Gradle atau EAS) sudah ditentukan.
-- [ ] Jenis APK (Development Build, internal, atau production) sudah jelas.
-- [ ] `expo-dev-client` diverifikasi jika Development Build diminta.
-- [ ] Versi Java, Node/Bun, Gradle, AGP, dan Android SDK mengikuti proyek.
-- [ ] Tidak ada API SDK atau symlink yang dipaksakan tanpa bukti.
-- [ ] ABI dikonfigurasi dan diverifikasi sesuai permintaan.
-- [ ] Cache memakai key yang relevan dengan lockfile dan konfigurasi.
-- [ ] Prebuild tidak menghapus native customization.
-- [ ] Lokasi APK ditemukan dan divalidasi sebelum unggah.
-- [ ] Artefak gagal dengan jelas jika APK tidak tersedia.
-- [ ] Laporan membedakan hasil yang sudah diuji dan yang belum.
+- [ ] Framework dikenali dengan benar: Flutter atau Expo.
+- [ ] Prosedur khusus framework tidak tercampur.
+- [ ] Jenis build dan target ABI sudah jelas.
+- [ ] Versi toolchain mengikuti proyek dan dokumentasi resmi.
+- [ ] Branch, submodule, dan lockfile ditangani dengan benar.
+- [ ] Cache sesuai framework dan memiliki invalidasi yang tepat.
+- [ ] Tidak ada SDK atau symlink yang dipaksakan tanpa bukti.
+- [ ] Prebuild Expo tidak menghapus perubahan native.
+- [ ] Flavor, signing, environment, dan entry point Flutter diperiksa jika relevan.
+- [ ] APK ditemukan dan divalidasi sebelum upload.
+- [ ] Laporan membedakan hasil teruji dan belum terverifikasi.
