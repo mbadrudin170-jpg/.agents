@@ -293,3 +293,4 @@ Gunakan dokumentasi sesuai framework dan versi proyek. Utamakan dokumentasi resm
 - [ ] Format APK dipastikan; AAB tidak salah dianggap APK.
 - [ ] APK ditemukan dan divalidasi sebelum upload.
 - [ ] Laporan membedakan hasil teruji dan belum terverifikasi.
+kopi
